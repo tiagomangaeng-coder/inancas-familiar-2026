@@ -8,6 +8,86 @@ from st_supabase_connection import SupabaseConnection
 # --- Configuração da Página ---
 st.set_page_config(page_title="Finanças 2026", layout="wide", page_icon="💰")
 
+# ================= TELA DE ABERTURA (SPLASH SCREEN) =================
+# Verifica se a abertura já foi mostrada nesta sessão
+if "splash_shown" not in st.session_state:
+    st.session_state.splash_shown = False
+
+if not st.session_state.splash_shown:
+    # Cria um container vazio para a animação
+    splash = st.empty()
+    
+    # CSS para forçar a tela cheia sobrepondo tudo
+    splash_html = """
+    <style>
+        .splash-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: #ffffff;
+            z-index: 999999;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            font-family: sans-serif;
+        }
+        .splash-title {
+            font-size: 3rem;
+            font-weight: bold;
+            color: #2E7D32; /* Verde Finanças */
+            text-align: center;
+            margin-bottom: 10px;
+            animation: fadeIn 1.5s ease-in-out;
+        }
+        .splash-subtitle {
+            font-size: 1.5rem;
+            color: #555;
+            text-align: center;
+            animation: fadeIn 2s ease-in-out;
+        }
+        .splash-footer {
+            position: absolute;
+            bottom: 40px;
+            font-size: 0.9rem;
+            color: #888;
+            animation: slideUp 1s ease-out;
+        }
+        /* Animações Simples */
+        @keyframes fadeIn {
+            0% { opacity: 0; }
+            100% { opacity: 1; }
+        }
+        @keyframes slideUp {
+            0% { transform: translateY(20px); opacity: 0; }
+            100% { transform: translateY(0); opacity: 1; }
+        }
+    </style>
+    
+    <div class="splash-container">
+        <div class="splash-title">Controle Financeiro</div>
+        <div class="splash-subtitle">Tiago e Byanca</div>
+        <div class="splash-footer">Desenvolvido por tmanga - 2026</div>
+    </div>
+    """
+    
+    # Renderiza a tela de abertura
+    splash.markdown(splash_html, unsafe_allow_html=True)
+    
+    # Aguarda 4 segundos
+    time.sleep(4)
+    
+    # Limpa a tela de abertura
+    splash.empty()
+    
+    # Marca como mostrado para não repetir se recarregar a página
+    st.session_state.splash_shown = True
+
+# ================= FIM DA TELA DE ABERTURA =================
+
+
 # --- Conexão com Supabase ---
 try:
     conn = st.connection("supabase", type=SupabaseConnection)
@@ -19,7 +99,6 @@ except Exception as e:
 def get_data(table_name):
     """Busca todos os dados de uma tabela."""
     try:
-        # CORREÇÃO APLICADA: Usando .select("*") em vez de .query()
         response = conn.table(table_name).select("*").execute()
         return response.data
     except Exception as e:
@@ -141,14 +220,13 @@ with tab_dados:
             column_config={
                 "valor": st.column_config.NumberColumn("Valor", format="R$ %.2f"),
                 "data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
-                "id": None, # Oculta ID visualmente mas mantém nos dados
+                "id": None, 
                 "created_at": None
             }
         )
         
         # Botão de Exclusão
         if len(event.selection.rows) > 0:
-            # Pega o ID das linhas selecionadas no DataFrame filtrado
             ids_selecionados = df_show.iloc[event.selection.rows]['id'].tolist()
             st.warning(f"{len(ids_selecionados)} itens selecionados.")
             
@@ -207,7 +285,6 @@ with tab_dash:
             
             # 3. Linha Evolução
             st.subheader("Evolução Mensal (Receitas vs Despesas)")
-            # Agrupar por mês e tipo
             df_evol = df_d.groupby([df_d['data'].dt.to_period("M").astype(str), 'tipo'])['valor'].sum().reset_index()
             df_evol.columns = ['Mes', 'Tipo', 'Valor']
             
@@ -241,7 +318,7 @@ with tab_config:
             
     st.divider()
     
-    # --- IMPORTAÇÃO AVANÇADA (Sua Lógica) ---
+    # --- IMPORTAÇÃO AVANÇADA ---
     st.subheader("📂 Importação de Dados (Excel)")
     st.info("O sistema detecta automaticamente se a planilha é Mensal (Colunas Janeiro, Fevereiro...) ou Lista Simples.")
     
@@ -256,7 +333,6 @@ with tab_config:
                 count = 0
                 rows_to_insert = []
                 
-                # Detectar Pivot (Colunas com nomes de meses)
                 cols_upper = [str(c).upper() for c in df.columns]
                 meses_pt = ["JANEIRO", "FEVEREIRO", "MARÇO", "ABRIL", "MAIO", "JUNHO", 
                            "JULHO", "AGOSTO", "SETEMBRO", "OUTUBRO", "NOVEMBRO", "DEZEMBRO"]
@@ -266,7 +342,6 @@ with tab_config:
                 status_text.text("Lendo arquivo e convertendo dados...")
 
                 if tem_meses:
-                    # === MODO PIVOT (Colunas de Meses) ===
                     filename = uploaded_file.name.upper()
                     resp_padrao = "Geral"
                     if "TIAGO" in filename and "BYANCA" not in filename: resp_padrao = "Tiago"
@@ -314,10 +389,8 @@ with tab_config:
                                     continue
 
                 else:
-                    # === MODO LISTA PADRÃO ===
                     for index, row in df.iterrows():
                         try:
-                            # Ajuste de colunas: 0=Data, 1=Tipo, 2=Cat, 3=Desc, 4=Valor, 5=Resp
                             raw_date = row.iloc[0]
                             if isinstance(raw_date, str):
                                 dt_obj = datetime.strptime(raw_date, "%d/%m/%Y")
@@ -343,11 +416,9 @@ with tab_config:
                             print(f"Erro linha {index}: {e}")
                             continue
 
-                # Inserção em Lote no Supabase
                 if rows_to_insert:
                     status_text.text(f"Enviando {count} registros para o Supabase...")
                     
-                    # Dividir em lotes menores para não travar a API se for muito grande
                     batch_size = 100
                     for i in range(0, len(rows_to_insert), batch_size):
                         batch = rows_to_insert[i:i + batch_size]
