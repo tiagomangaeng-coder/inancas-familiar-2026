@@ -187,25 +187,152 @@ with tab_dash:
 
 # ================= TAB 3: CONFIGURAÇÃO =================
 with tab_config:
-    c1, c2 = st.columns(2)
+    st.header("⚙️ Configurações e Importação")
     
-    with c1:
-        st.subheader("Gerenciar Categorias")
+    col_l, col_r = st.columns(2)
+    
+    with col_l:
+        st.subheader("Categorias")
         nova_cat = st.text_input("Nova Categoria")
         if st.button("Adicionar Categoria"):
-            add_aux("categorias", nova_cat)
-            st.rerun()
+            if nova_cat:
+                add_aux("categorias", nova_cat)
+                st.rerun()
             
-    with c2:
-        st.subheader("Gerenciar Responsáveis")
+    with col_r:
+        st.subheader("Responsáveis")
         novo_resp = st.text_input("Novo Responsável")
         if st.button("Adicionar Responsável"):
-            add_aux("responsaveis", novo_resp)
-            st.rerun()
+            if novo_resp:
+                add_aux("responsaveis", novo_resp)
+                st.rerun()
             
     st.divider()
-    st.subheader("Importar CSV/Excel")
-    uploaded_file = st.file_uploader("Escolha o arquivo", type=['csv', 'xlsx'])
+    
+    st.subheader("📂 Importação de Dados (Excel)")
+    st.info("Suporta arquivos com colunas mensais (JANEIRO, FEVEREIRO...) ou lista simples.")
+    
+    uploaded_file = st.file_uploader("Arraste sua planilha aqui", type=['xlsx', 'xls'])
+    tipo_import = st.radio("Esses dados são:", ["Despesa", "Receita"], horizontal=True)
+    
+    if uploaded_file:
+        if st.button("Processar e Importar"):
+            try:
+                df = pd.read_excel(uploaded_file)
+                
+                # --- LÓGICA DE LIMPEZA E IMPORTAÇÃO ---
+                count = 0
+                rows_to_insert = []
+                
+                # Detectar se é planilha de meses (Pivot) ou Lista Simples
+                cols_upper = [str(c).upper() for c in df.columns]
+                meses_pt = ["JANEIRO", "FEVEREIRO", "MARÇO", "ABRIL", "MAIO", "JUNHO", 
+                           "JULHO", "AGOSTO", "SETEMBRO", "OUTUBRO", "NOVEMBRO", "DEZEMBRO"]
+                tem_meses = len([m for m in meses_pt if m in cols_upper]) >= 3
+                
+                status_text = st.empty()
+                status_text.text("Lendo arquivo...")
+
+                if tem_meses:
+                    # === MODO PIVOT (Colunas de Meses) ===
+                    # Tenta adivinhar responsável pelo nome do arquivo
+                    filename = uploaded_file.name.upper()
+                    resp_padrao = "Geral"
+                    if "TIAGO" in filename and "BYANCA" not in filename: resp_padrao = "Tiago"
+                    elif "BYANCA" in filename: resp_padrao = "Byanca"
+                    elif "CASAL" in filename: resp_padrao = "Casal"
+                    
+                    year = 2026 # Padrão, ou você pode colocar um input para escolher o ano
+                    
+                    for index, row in df.iterrows():
+                        # Tenta achar descrição e categoria
+                        desc = str(row.iloc[0]) if len(row) > 0 else "Importado"
+                        cat = str(row.iloc[2]) if len(row) > 2 else "Geral"
+                        
+                        # Limpeza básica
+                        if pd.isna(desc) or desc == 'nan': continue
+                        
+                        # Varrer colunas de meses
+                        for col_name in df.columns:
+                            col_upper = str(col_name).upper().strip()
+                            mes_idx = -1
+                            for i, m_name in enumerate(meses_pt):
+                                if m_name in col_upper:
+                                    mes_idx = i + 1
+                                    break
+                            
+                            if mes_idx > 0:
+                                val_raw = row[col_name]
+                                if pd.isna(val_raw): continue
+                                
+                                try:
+                                    # Limpa R$ e converte vírgula
+                                    val_str = str(val_raw).replace("R$", "").replace(" ", "")
+                                    if "," in val_str and "." in val_str: val_str = val_str.replace(".", "").replace(",", ".")
+                                    elif "," in val_str: val_str = val_str.replace(",", ".")
+                                    
+                                    valor = float(val_str)
+                                    if valor > 0:
+                                        data_iso = f"{year}-{mes_idx:02d}-01" # Sempre dia 01
+                                        rows_to_insert.append({
+                                            "data": data_iso,
+                                            "tipo": tipo_import,
+                                            "categoria": cat,
+                                            "descricao": desc,
+                                            "valor": valor,
+                                            "responsavel": resp_padrao
+                                        })
+                                        count += 1
+                                except:
+                                    continue
+
+                else:
+                    # === MODO LISTA PADRÃO ===
+                    for index, row in df.iterrows():
+                        try:
+                            # Ajuste conforme suas colunas: 0=Data, 1=Tipo, 2=Cat, 3=Desc, 4=Valor, 5=Resp
+                            raw_date = row.iloc[0]
+                            # Tenta converter data excel ou string
+                            if isinstance(raw_date, str):
+                                dt_obj = datetime.strptime(raw_date, "%d/%m/%Y")
+                            else:
+                                dt_obj = raw_date
+                            
+                            data_iso = dt_obj.strftime("%Y-%m-%d")
+                            
+                            val_raw = row.iloc[4]
+                            val_str = str(val_raw).replace("R$", "").replace(" ", "").replace(",", ".")
+                            valor = float(val_str)
+                            
+                            rows_to_insert.append({
+                                "data": data_iso,
+                                "tipo": row.iloc[1] if len(row)>1 else tipo_import,
+                                "categoria": row.iloc[2] if len(row)>2 else "Geral",
+                                "descricao": row.iloc[3] if len(row)>3 else "Importado",
+                                "valor": valor,
+                                "responsavel": row.iloc[5] if len(row)>5 else "Geral"
+                            })
+                            count += 1
+                        except Exception as e:
+                            print(f"Erro linha {index}: {e}")
+                            continue
+
+                # Inserção no Banco (em lotes para ser rápido)
+                if rows_to_insert:
+                    status_text.text(f"Inserindo {count} registros no banco...")
+                    # Supabase permite insert de lista
+                    conn.table("financas").insert(rows_to_insert).execute()
+                    st.success(f"Sucesso! {count} registros importados.")
+                    st.cache_data.clear()
+                    # Aguarda 2s e recarrega
+                    import time
+                    time.sleep(2)
+                    st.rerun()
+                else:
+                    st.warning("Nenhum dado válido encontrado para importar.")
+
+            except Exception as e:
+                st.error(f"Erro ao processar arquivo: {e}")
     
     if uploaded_file:
         st.info("Funcionalidade de importação pronta para receber a lógica Pandas do seu código original.")
