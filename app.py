@@ -9,15 +9,12 @@ from st_supabase_connection import SupabaseConnection
 st.set_page_config(page_title="Finanças 2026", layout="wide", page_icon="💰")
 
 # ================= TELA DE ABERTURA (SPLASH SCREEN) =================
-# Verifica se a abertura já foi mostrada nesta sessão
 if "splash_shown" not in st.session_state:
     st.session_state.splash_shown = False
 
 if not st.session_state.splash_shown:
-    # Cria um container vazio para a animação
     splash = st.empty()
     
-    # CSS para forçar a tela cheia sobrepondo tudo
     splash_html = """
     <style>
         .splash-container {
@@ -37,7 +34,7 @@ if not st.session_state.splash_shown:
         .splash-title {
             font-size: 3rem;
             font-weight: bold;
-            color: #2E7D32; /* Verde Finanças */
+            color: #2E7D32;
             text-align: center;
             margin-bottom: 10px;
             animation: fadeIn 1.5s ease-in-out;
@@ -55,15 +52,8 @@ if not st.session_state.splash_shown:
             color: #888;
             animation: slideUp 1s ease-out;
         }
-        /* Animações Simples */
-        @keyframes fadeIn {
-            0% { opacity: 0; }
-            100% { opacity: 1; }
-        }
-        @keyframes slideUp {
-            0% { transform: translateY(20px); opacity: 0; }
-            100% { transform: translateY(0); opacity: 1; }
-        }
+        @keyframes fadeIn { 0% { opacity: 0; } 100% { opacity: 1; } }
+        @keyframes slideUp { 0% { transform: translateY(20px); opacity: 0; } 100% { transform: translateY(0); opacity: 1; } }
     </style>
     
     <div class="splash-container">
@@ -73,20 +63,11 @@ if not st.session_state.splash_shown:
     </div>
     """
     
-    # Renderiza a tela de abertura
     splash.markdown(splash_html, unsafe_allow_html=True)
-    
-    # Aguarda 4 segundos
     time.sleep(4)
-    
-    # Limpa a tela de abertura
     splash.empty()
-    
-    # Marca como mostrado para não repetir se recarregar a página
     st.session_state.splash_shown = True
-
 # ================= FIM DA TELA DE ABERTURA =================
-
 
 # --- Conexão com Supabase ---
 try:
@@ -95,7 +76,7 @@ except Exception as e:
     st.error("Erro ao conectar no Supabase. Verifique os Secrets.")
     st.stop()
 
-# --- Funções de Banco de Dados (CRUD) ---
+# --- Funções de Banco de Dados ---
 def get_data(table_name):
     """Busca todos os dados de uma tabela."""
     try:
@@ -189,8 +170,10 @@ with tab_dados:
     if rows:
         df = pd.DataFrame(rows)
         
-        # Converter data
-        df['data'] = pd.to_datetime(df['data'])
+        # Converter para datetime para ordenação correta
+        df['data_dt'] = pd.to_datetime(df['data'])
+        # Criar coluna apenas com data (sem hora) para exibição correta
+        df['data'] = df['data_dt'].dt.date
         
         # Filtros Rápidos
         col_f1, col_f2, col_f3 = st.columns(3)
@@ -201,16 +184,16 @@ with tab_dados:
         # Aplicar Filtros
         df_show = df.copy()
         if filtro_mes != "Todos":
-            df_show = df_show[df_show['data'].dt.month == int(filtro_mes)]
+            df_show = df_show[df_show['data_dt'].dt.month == int(filtro_mes)]
         
-        df_show = df_show[df_show['data'].dt.year == int(filtro_ano)]
+        df_show = df_show[df_show['data_dt'].dt.year == int(filtro_ano)]
         
         if filtro_resp != "Todos":
             df_show = df_show[df_show['responsavel'] == filtro_resp]
 
-        df_show = df_show.sort_values(by='data', ascending=False)
+        df_show = df_show.sort_values(by='data_dt', ascending=False)
 
-        # Exibição da Tabela com Seleção
+        # Exibição da Tabela
         event = st.dataframe(
             df_show,
             use_container_width=True,
@@ -219,9 +202,11 @@ with tab_dados:
             on_select="rerun",
             column_config={
                 "valor": st.column_config.NumberColumn("Valor", format="R$ %.2f"),
+                # Aqui definimos o formato Brasileiro para exibição
                 "data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
                 "id": None, 
-                "created_at": None
+                "created_at": None,
+                "data_dt": None # Oculta a coluna auxiliar
             }
         )
         
@@ -242,21 +227,18 @@ with tab_dash:
         df = pd.DataFrame(rows)
         df['data'] = pd.to_datetime(df['data'])
         
-        # Filtros do Dashboard
         st.caption("Filtros do Dashboard")
         c1, c2, c3 = st.columns(3)
         ano_dash = c1.selectbox("Ano Ref.", [2025, 2026], index=1, key="dash_ano")
         mes_dash = c2.selectbox("Mês Ref.", ["Todos"] + list(range(1, 13)), key="dash_mes")
         resp_dash = c3.selectbox("Resp. Ref.", ["Todos"] + lista_resps, key="dash_resp")
         
-        # Filtragem
         df_d = df[df['data'].dt.year == ano_dash]
         if mes_dash != "Todos":
             df_d = df_d[df_d['data'].dt.month == int(mes_dash)]
         if resp_dash != "Todos":
             df_d = df_d[df_d['responsavel'] == resp_dash]
             
-        # Cards
         receita = df_d[df_d['tipo'] == 'Receita']['valor'].sum()
         despesa = df_d[df_d['tipo'] == 'Despesa']['valor'].sum()
         saldo = receita - despesa
@@ -268,26 +250,23 @@ with tab_dash:
         
         st.divider()
         
-        # Gráficos
         col_g1, col_g2 = st.columns(2)
-        
         df_desp = df_d[df_d['tipo'] == 'Despesa']
         
-        # 1. Pizza Categorias
         if not df_desp.empty:
+            # Gráfico Pizza
             fig_pie = px.pie(df_desp, values='valor', names='categoria', title='Despesas por Categoria', hole=0.4)
             col_g1.plotly_chart(fig_pie, use_container_width=True)
             
-            # 2. Barra Responsáveis
+            # Gráfico Barra
             df_resp_group = df_desp.groupby('responsavel')['valor'].sum().reset_index()
             fig_bar = px.bar(df_resp_group, x='responsavel', y='valor', title='Quem gastou mais?', text_auto='.2s', color='responsavel')
             col_g2.plotly_chart(fig_bar, use_container_width=True)
             
-            # 3. Linha Evolução
+            # Gráfico Linha
             st.subheader("Evolução Mensal (Receitas vs Despesas)")
             df_evol = df_d.groupby([df_d['data'].dt.to_period("M").astype(str), 'tipo'])['valor'].sum().reset_index()
             df_evol.columns = ['Mes', 'Tipo', 'Valor']
-            
             fig_line = px.line(df_evol, x='Mes', y='Valor', color='Tipo', markers=True, 
                                color_discrete_map={'Receita': 'green', 'Despesa': 'red'})
             st.plotly_chart(fig_line, use_container_width=True)
@@ -298,7 +277,6 @@ with tab_dash:
 with tab_config:
     st.header("⚙️ Configurações e Importação")
     
-    # --- Gestão de Categorias e Responsáveis ---
     col_l, col_r = st.columns(2)
     with col_l:
         st.subheader("Categorias")
@@ -318,7 +296,6 @@ with tab_config:
             
     st.divider()
     
-    # --- IMPORTAÇÃO AVANÇADA ---
     st.subheader("📂 Importação de Dados (Excel)")
     st.info("O sistema detecta automaticamente se a planilha é Mensal (Colunas Janeiro, Fevereiro...) ou Lista Simples.")
     
@@ -387,7 +364,6 @@ with tab_config:
                                         count += 1
                                 except:
                                     continue
-
                 else:
                     for index, row in df.iterrows():
                         try:
