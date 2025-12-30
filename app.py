@@ -14,398 +14,231 @@ if "splash_shown" not in st.session_state:
 
 if not st.session_state.splash_shown:
     splash = st.empty()
-    
     splash_html = """
     <style>
-        .splash-container {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            background-color: #ffffff;
-            z-index: 999999;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            font-family: sans-serif;
-        }
-        .splash-title {
-            font-size: 3rem;
-            font-weight: bold;
-            color: #2E7D32;
-            text-align: center;
-            margin-bottom: 10px;
-            animation: fadeIn 1.5s ease-in-out;
-        }
-        .splash-subtitle {
-            font-size: 1.5rem;
-            color: #555;
-            text-align: center;
-            animation: fadeIn 2s ease-in-out;
-        }
-        .splash-footer {
-            position: absolute;
-            bottom: 40px;
-            font-size: 0.9rem;
-            color: #888;
-            animation: slideUp 1s ease-out;
-        }
+        .splash-container { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: #ffffff; z-index: 999999; display: flex; flex-direction: column; justify-content: center; align-items: center; font-family: sans-serif; }
+        .splash-title { font-size: 3rem; font-weight: bold; color: #2E7D32; margin-bottom: 10px; animation: fadeIn 1.5s ease-in-out; }
+        .splash-subtitle { font-size: 1.5rem; color: #555; animation: fadeIn 2s ease-in-out; }
+        .splash-footer { position: absolute; bottom: 40px; font-size: 0.9rem; color: #888; animation: slideUp 1s ease-out; }
         @keyframes fadeIn { 0% { opacity: 0; } 100% { opacity: 1; } }
         @keyframes slideUp { 0% { transform: translateY(20px); opacity: 0; } 100% { transform: translateY(0); opacity: 1; } }
     </style>
-    
     <div class="splash-container">
         <div class="splash-title">Controle Financeiro</div>
         <div class="splash-subtitle">Tiago e Byanca</div>
         <div class="splash-footer">Desenvolvido por tmanga - 2026</div>
     </div>
     """
-    
     splash.markdown(splash_html, unsafe_allow_html=True)
     time.sleep(4)
     splash.empty()
     st.session_state.splash_shown = True
-# ================= FIM DA TELA DE ABERTURA =================
 
 # --- Conexão com Supabase ---
 try:
     conn = st.connection("supabase", type=SupabaseConnection)
 except Exception as e:
-    st.error("Erro ao conectar no Supabase. Verifique os Secrets.")
+    st.error("Erro de Conexão. Verifique os Secrets.")
     st.stop()
 
-# --- Funções de Banco de Dados ---
+# --- Funções CRUD ---
 def get_data(table_name):
-    """Busca todos os dados de uma tabela."""
     try:
         response = conn.table(table_name).select("*").execute()
         return response.data
-    except Exception as e:
-        st.error(f"Erro ao buscar dados de {table_name}: {e}")
-        return []
+    except: return []
 
-def add_financa(data, tipo, cat, desc, val, resp):
-    """Adiciona um novo registro."""
+def add_financa(data_obj, tipo, cat, desc, val, resp):
     try:
+        # Garante formato YYYY-MM-DD para o banco
+        data_iso = data_obj.strftime("%Y-%m-%d")
         conn.table("financas").insert({
-            "data": data.strftime("%Y-%m-%d"),
-            "tipo": tipo,
-            "categoria": cat,
-            "descricao": desc,
-            "valor": val,
-            "responsavel": resp
+            "data": data_iso, "tipo": tipo, "categoria": cat, 
+            "descricao": desc, "valor": val, "responsavel": resp
         }).execute()
-        st.success("Registro adicionado!")
+        st.success("Salvo com sucesso!")
         st.cache_data.clear()
-    except Exception as e:
-        st.error(f"Erro ao salvar: {e}")
+    except Exception as e: st.error(f"Erro: {e}")
 
-def delete_financa(ids_to_delete):
-    """Deleta registros por ID."""
+def delete_financa(ids):
     try:
-        for _id in ids_to_delete:
-            conn.table("financas").delete().eq("id", _id).execute()
-        st.success("Registros excluídos!")
+        for i in ids: conn.table("financas").delete().eq("id", i).execute()
+        st.success("Apagado!")
         st.cache_data.clear()
         time.sleep(1)
         st.rerun()
-    except Exception as e:
-        st.error(f"Erro ao excluir: {e}")
+    except: st.error("Erro ao apagar.")
 
 def add_aux(table, nome):
-    """Adiciona categoria ou responsável."""
     try:
         conn.table(table).insert({"nome": nome}).execute()
-        st.success(f"{nome} adicionado!")
+        st.success("Adicionado!")
         st.cache_data.clear()
-    except:
-        st.warning("Item já existe ou erro na inserção.")
+    except: st.warning("Já existe.")
 
-# --- Interface Principal ---
+# --- Interface ---
 st.title("📊 Controle Familiar 2026")
+tab1, tab2, tab3 = st.tabs(["📝 Registros", "📈 Dashboard", "⚙️ Configuração"])
 
-tab_dados, tab_dash, tab_config = st.tabs(["📝 Registros", "📈 Dashboard", "⚙️ Configuração"])
+# Carregar Listas
+cats = [c['nome'] for c in get_data("categorias")] or ["Geral"]
+resps = [r['nome'] for r in get_data("responsaveis")] or ["Geral"]
 
-# Carregar listas auxiliares
-try:
-    data_cats = get_data("categorias")
-    lista_cats = [item['nome'] for item in data_cats] if data_cats else ["Geral"]
-    
-    data_resps = get_data("responsaveis")
-    lista_resps = [item['nome'] for item in data_resps] if data_resps else ["Geral"]
-except:
-    lista_cats = ["Geral"]
-    lista_resps = ["Geral"]
-
-# ================= TAB 1: REGISTROS =================
-with tab_dados:
-    # --- Formulário de Inserção ---
-    with st.expander("➕ Novo Lançamento", expanded=False):
+# ABA 1: REGISTROS
+with tab1:
+    with st.expander("➕ Novo Lançamento"):
         c1, c2, c3 = st.columns(3)
-        with c1:
-            data_in = st.date_input("Data", datetime.today())
-            tipo_in = st.selectbox("Tipo", ["Despesa", "Receita"])
-        with c2:
-            cat_in = st.selectbox("Categoria", lista_cats)
-            valor_in = st.number_input("Valor (R$)", min_value=0.0, format="%.2f")
-        with c3:
-            resp_in = st.selectbox("Responsável", lista_resps)
-            desc_in = st.text_input("Descrição")
-
-        if st.button("Salvar Lançamento", use_container_width=True):
-            if not desc_in:
-                st.warning("Preencha a descrição.")
-            else:
-                add_financa(data_in, tipo_in, cat_in, desc_in, valor_in, resp_in)
+        dt = c1.date_input("Data", datetime.today())
+        tp = c1.selectbox("Tipo", ["Despesa", "Receita"])
+        ct = c2.selectbox("Categoria", cats)
+        vl = c2.number_input("Valor", min_value=0.0, format="%.2f")
+        rs = c3.selectbox("Responsável", resps)
+        ds = c3.text_input("Descrição")
+        if st.button("Salvar", use_container_width=True):
+            if ds: 
+                add_financa(dt, tp, ct, ds, vl, rs)
                 st.rerun()
+            else: st.warning("Preencha a descrição")
 
     st.divider()
-    
-    # --- Tabela de Dados ---
-    st.subheader("Histórico de Lançamentos")
-    
     rows = get_data("financas")
     if rows:
         df = pd.DataFrame(rows)
         
-        # Converter para datetime para ordenação correta
+        # --- CORREÇÃO DAS DATAS NA VISUALIZAÇÃO ---
+        # 1. Converte a string do banco (YYYY-MM-DD) para data real
         df['data_dt'] = pd.to_datetime(df['data'])
-        # Criar coluna apenas com data (sem hora) para exibição correta
-        df['data'] = df['data_dt'].dt.date
-        
-        # Filtros Rápidos
-        col_f1, col_f2, col_f3 = st.columns(3)
-        filtro_mes = col_f1.selectbox("Mês", ["Todos"] + list(range(1, 13)), index=0)
-        filtro_ano = col_f2.selectbox("Ano", [2025, 2026], index=1)
-        filtro_resp = col_f3.selectbox("Resp.", ["Todos"] + lista_resps)
-        
-        # Aplicar Filtros
-        df_show = df.copy()
-        if filtro_mes != "Todos":
-            df_show = df_show[df_show['data_dt'].dt.month == int(filtro_mes)]
-        
-        df_show = df_show[df_show['data_dt'].dt.year == int(filtro_ano)]
-        
-        if filtro_resp != "Todos":
-            df_show = df_show[df_show['responsavel'] == filtro_resp]
+        # 2. Cria coluna 'data_show' apenas com a data (sem hora) para o filtro funcionar bem
+        df['data_show'] = df['data_dt'].dt.date
 
-        df_show = df_show.sort_values(by='data_dt', ascending=False)
+        # Filtros
+        c1, c2, c3 = st.columns(3)
+        mes = c1.selectbox("Mês", ["Todos"] + list(range(1,13)))
+        ano = c2.selectbox("Ano", [2025, 2026], index=1)
+        resp = c3.selectbox("Resp.", ["Todos"] + resps)
 
-        # Exibição da Tabela
-        event = st.dataframe(
-            df_show,
-            use_container_width=True,
-            hide_index=True,
-            selection_mode="multi-row",
+        if mes != "Todos": df = df[df['data_dt'].dt.month == int(mes)]
+        df = df[df['data_dt'].dt.year == int(ano)]
+        if resp != "Todos": df = df[df['responsavel'] == resp]
+        
+        df = df.sort_values(by='data_dt', ascending=False)
+
+        # Tabela com formato Brasileiro forçado na coluna Data
+        evt = st.dataframe(
+            df, 
+            use_container_width=True, 
+            hide_index=True, 
+            selection_mode="multi-row", 
             on_select="rerun",
             column_config={
+                "data_show": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
                 "valor": st.column_config.NumberColumn("Valor", format="R$ %.2f"),
-                # Aqui definimos o formato Brasileiro para exibição
-                "data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
-                "id": None, 
-                "created_at": None,
-                "data_dt": None # Oculta a coluna auxiliar
+                "data": None, "data_dt": None, "id": None, "created_at": None # Esconde colunas técnicas
             }
         )
         
-        # Botão de Exclusão
-        if len(event.selection.rows) > 0:
-            ids_selecionados = df_show.iloc[event.selection.rows]['id'].tolist()
-            st.warning(f"{len(ids_selecionados)} itens selecionados.")
-            
-            if st.button("🗑️ Excluir Itens Selecionados", type="primary"):
-                delete_financa(ids_selecionados)
-    else:
-        st.info("Nenhum dado encontrado no banco.")
+        if evt.selection.rows:
+            ids = df.iloc[evt.selection.rows]['id'].tolist()
+            if st.button("🗑️ Excluir Selecionados", type="primary"): delete_financa(ids)
+    else: st.info("Sem dados.")
 
-# ================= TAB 2: DASHBOARD =================
-with tab_dash:
-    rows = get_data("financas")
+# ABA 2: DASHBOARD
+with tab2:
     if rows:
-        df = pd.DataFrame(rows)
-        df['data'] = pd.to_datetime(df['data'])
+        df2 = pd.DataFrame(rows)
+        df2['data'] = pd.to_datetime(df2['data'])
         
-        st.caption("Filtros do Dashboard")
         c1, c2, c3 = st.columns(3)
-        ano_dash = c1.selectbox("Ano Ref.", [2025, 2026], index=1, key="dash_ano")
-        mes_dash = c2.selectbox("Mês Ref.", ["Todos"] + list(range(1, 13)), key="dash_mes")
-        resp_dash = c3.selectbox("Resp. Ref.", ["Todos"] + lista_resps, key="dash_resp")
-        
-        df_d = df[df['data'].dt.year == ano_dash]
-        if mes_dash != "Todos":
-            df_d = df_d[df_d['data'].dt.month == int(mes_dash)]
-        if resp_dash != "Todos":
-            df_d = df_d[df_d['responsavel'] == resp_dash]
-            
-        receita = df_d[df_d['tipo'] == 'Receita']['valor'].sum()
-        despesa = df_d[df_d['tipo'] == 'Despesa']['valor'].sum()
-        saldo = receita - despesa
+        a_d = c1.selectbox("Ano", [2025, 2026], index=1, key="d_a")
+        m_d = c2.selectbox("Mês", ["Todos"] + list(range(1,13)), key="d_m")
+        r_d = c3.selectbox("Resp.", ["Todos"] + resps, key="d_r")
+
+        df_d = df2[df2['data'].dt.year == int(a_d)]
+        if m_d != "Todos": df_d = df_d[df_d['data'].dt.month == int(m_d)]
+        if r_d != "Todos": df_d = df_d[df_d['responsavel'] == r_d]
+
+        rec = df_d[df_d['tipo']=='Receita']['valor'].sum()
+        des = df_d[df_d['tipo']=='Despesa']['valor'].sum()
         
         k1, k2, k3 = st.columns(3)
-        k1.metric("Receitas", f"R$ {receita:,.2f}")
-        k2.metric("Despesas", f"R$ {despesa:,.2f}", delta_color="inverse")
-        k3.metric("Saldo", f"R$ {saldo:,.2f}", delta=f"{saldo:,.2f}")
+        k1.metric("Receitas", f"R$ {rec:,.2f}")
+        k2.metric("Despesas", f"R$ {des:,.2f}", delta_color="inverse")
+        k3.metric("Saldo", f"R$ {rec-des:,.2f}")
         
-        st.divider()
-        
-        col_g1, col_g2 = st.columns(2)
-        df_desp = df_d[df_d['tipo'] == 'Despesa']
-        
-        if not df_desp.empty:
-            # Gráfico Pizza
-            fig_pie = px.pie(df_desp, values='valor', names='categoria', title='Despesas por Categoria', hole=0.4)
-            col_g1.plotly_chart(fig_pie, use_container_width=True)
+        if not df_d.empty:
+            g1, g2 = st.columns(2)
+            desp = df_d[df_d['tipo']=='Despesa']
+            if not desp.empty:
+                g1.plotly_chart(px.pie(desp, values='valor', names='categoria', title='Por Categoria', hole=0.4), use_container_width=True)
+                g2.plotly_chart(px.bar(desp.groupby('responsavel')['valor'].sum().reset_index(), x='responsavel', y='valor', title='Por Responsável'), use_container_width=True)
             
-            # Gráfico Barra
-            df_resp_group = df_desp.groupby('responsavel')['valor'].sum().reset_index()
-            fig_bar = px.bar(df_resp_group, x='responsavel', y='valor', title='Quem gastou mais?', text_auto='.2s', color='responsavel')
-            col_g2.plotly_chart(fig_bar, use_container_width=True)
-            
-            # Gráfico Linha
-            st.subheader("Evolução Mensal (Receitas vs Despesas)")
-            df_evol = df_d.groupby([df_d['data'].dt.to_period("M").astype(str), 'tipo'])['valor'].sum().reset_index()
-            df_evol.columns = ['Mes', 'Tipo', 'Valor']
-            fig_line = px.line(df_evol, x='Mes', y='Valor', color='Tipo', markers=True, 
-                               color_discrete_map={'Receita': 'green', 'Despesa': 'red'})
-            st.plotly_chart(fig_line, use_container_width=True)
-        else:
-            st.info("Sem despesas registradas para gerar gráficos.")
+            # Gráfico de Evolução
+            evol = df_d.groupby([df_d['data'].dt.to_period("M").astype(str), 'tipo'])['valor'].sum().reset_index()
+            st.plotly_chart(px.line(evol, x='data', y='valor', color='tipo', title="Evolução Mensal"), use_container_width=True)
 
-# ================= TAB 3: CONFIGURAÇÃO & IMPORTAÇÃO =================
-with tab_config:
-    st.header("⚙️ Configurações e Importação")
+# ABA 3: CONFIGURAÇÃO E IMPORTAÇÃO
+with tab3:
+    c1, c2 = st.columns(2)
+    new_cat = c1.text_input("Nova Categoria")
+    if c1.button("Add Categoria") and new_cat: add_aux("categorias", new_cat)
     
-    col_l, col_r = st.columns(2)
-    with col_l:
-        st.subheader("Categorias")
-        nova_cat = st.text_input("Nova Categoria")
-        if st.button("Adicionar Categoria"):
-            if nova_cat:
-                add_aux("categorias", nova_cat)
-                st.rerun()
-            
-    with col_r:
-        st.subheader("Responsáveis")
-        novo_resp = st.text_input("Novo Responsável")
-        if st.button("Adicionar Responsável"):
-            if novo_resp:
-                add_aux("responsaveis", novo_resp)
-                st.rerun()
-            
+    new_resp = c2.text_input("Novo Responsável")
+    if c2.button("Add Responsável") and new_resp: add_aux("responsaveis", new_resp)
+    
     st.divider()
+    st.subheader("📂 Importar CSV/Excel")
+    up_file = st.file_uploader("Arquivo", type=['csv', 'xlsx'])
     
-    st.subheader("📂 Importação de Dados (Excel)")
-    st.info("O sistema detecta automaticamente se a planilha é Mensal (Colunas Janeiro, Fevereiro...) ou Lista Simples.")
-    
-    uploaded_file = st.file_uploader("Arraste sua planilha aqui", type=['xlsx', 'xls'])
-    tipo_import = st.radio("Esses dados são principalmente:", ["Despesa", "Receita"], horizontal=True)
-    
-    if uploaded_file:
-        if st.button("Processar e Importar"):
-            try:
-                df = pd.read_excel(uploaded_file)
-                
-                count = 0
-                rows_to_insert = []
-                
-                cols_upper = [str(c).upper() for c in df.columns]
-                meses_pt = ["JANEIRO", "FEVEREIRO", "MARÇO", "ABRIL", "MAIO", "JUNHO", 
-                           "JULHO", "AGOSTO", "SETEMBRO", "OUTUBRO", "NOVEMBRO", "DEZEMBRO"]
-                tem_meses = len([m for m in meses_pt if m in cols_upper]) >= 3
-                
-                status_text = st.empty()
-                status_text.text("Lendo arquivo e convertendo dados...")
+    if up_file and st.button("Importar"):
+        try:
+            # Tenta ler CSV (se falhar tenta Excel)
+            if up_file.name.endswith('.csv'):
+                # IMPORTANTE: O SEGREDO ESTÁ AQUI
+                # Lê o CSV usando ';' como separador e converte vírgula para ponto
+                df = pd.read_csv(up_file, sep=';', decimal=',')
+            else:
+                df = pd.read_excel(up_file)
 
-                if tem_meses:
-                    filename = uploaded_file.name.upper()
-                    resp_padrao = "Geral"
-                    if "TIAGO" in filename and "BYANCA" not in filename: resp_padrao = "Tiago"
-                    elif "BYANCA" in filename: resp_padrao = "Byanca"
-                    elif "CASAL" in filename: resp_padrao = "Casal"
+            # Padronizar nomes das colunas (remove espaços e deixa minúsculo)
+            df.columns = df.columns.str.strip().str.lower()
+            
+            count = 0
+            batch = []
+            
+            for _, row in df.iterrows():
+                try:
+                    # CORREÇÃO CRÍTICA DA DATA
+                    # dayfirst=True força o Pandas a entender 01/02 como 1 de Fev, não 2 de Jan
+                    raw_date = row['data']
+                    dt_obj = pd.to_datetime(raw_date, dayfirst=True)
                     
-                    year = 2026 
+                    # Prepara para o banco (Formato ISO YYYY-MM-DD)
+                    data_db = dt_obj.strftime("%Y-%m-%d")
                     
-                    for index, row in df.iterrows():
-                        desc = str(row.iloc[0]) if len(row) > 0 else "Importado"
-                        cat = str(row.iloc[2]) if len(row) > 2 else "Geral"
+                    # Tratamento do valor (se for string "1.000,00" converte para float)
+                    val = row['valor']
+                    if isinstance(val, str):
+                        val = float(val.replace('.', '').replace(',', '.'))
                         
-                        if pd.isna(desc) or desc == 'nan': continue
-                        
-                        for col_name in df.columns:
-                            col_upper = str(col_name).upper().strip()
-                            mes_idx = -1
-                            for i, m_name in enumerate(meses_pt):
-                                if m_name in col_upper:
-                                    mes_idx = i + 1
-                                    break
-                            
-                            if mes_idx > 0:
-                                val_raw = row[col_name]
-                                if pd.isna(val_raw): continue
-                                
-                                try:
-                                    val_str = str(val_raw).replace("R$", "").replace(" ", "")
-                                    if "," in val_str and "." in val_str: val_str = val_str.replace(".", "").replace(",", ".")
-                                    elif "," in val_str: val_str = val_str.replace(",", ".")
-                                    
-                                    valor = float(val_str)
-                                    if valor > 0:
-                                        data_iso = f"{year}-{mes_idx:02d}-01"
-                                        rows_to_insert.append({
-                                            "data": data_iso,
-                                            "tipo": tipo_import,
-                                            "categoria": cat,
-                                            "descricao": desc,
-                                            "valor": valor,
-                                            "responsavel": resp_padrao
-                                        })
-                                        count += 1
-                                except:
-                                    continue
-                else:
-                    for index, row in df.iterrows():
-                        try:
-                            raw_date = row.iloc[0]
-                            if isinstance(raw_date, str):
-                                dt_obj = datetime.strptime(raw_date, "%d/%m/%Y")
-                            else:
-                                dt_obj = raw_date
-                            
-                            data_iso = dt_obj.strftime("%Y-%m-%d")
-                            
-                            val_raw = row.iloc[4]
-                            val_str = str(val_raw).replace("R$", "").replace(" ", "").replace(",", ".")
-                            valor = float(val_str)
-                            
-                            rows_to_insert.append({
-                                "data": data_iso,
-                                "tipo": row.iloc[1] if len(row)>1 else tipo_import,
-                                "categoria": row.iloc[2] if len(row)>2 else "Geral",
-                                "descricao": row.iloc[3] if len(row)>3 else "Importado",
-                                "valor": valor,
-                                "responsavel": row.iloc[5] if len(row)>5 else "Geral"
-                            })
-                            count += 1
-                        except Exception as e:
-                            print(f"Erro linha {index}: {e}")
-                            continue
+                    batch.append({
+                        "data": data_db,
+                        "tipo": row['tipo'],
+                        "categoria": row['categoria'],
+                        "descricao": row['descricao'],
+                        "valor": float(val),
+                        "responsavel": row['responsavel']
+                    })
+                    count += 1
+                except Exception as e:
+                    st.error(f"Erro na linha {_}: {e}")
+                    continue
 
-                if rows_to_insert:
-                    status_text.text(f"Enviando {count} registros para o Supabase...")
-                    
-                    batch_size = 100
-                    for i in range(0, len(rows_to_insert), batch_size):
-                        batch = rows_to_insert[i:i + batch_size]
-                        conn.table("financas").insert(batch).execute()
-                    
-                    st.success(f"Sucesso! {count} registros importados.")
-                    st.cache_data.clear()
-                    time.sleep(2)
-                    st.rerun()
-                else:
-                    st.warning("Nenhum dado válido encontrado para importar.")
-
-            except Exception as e:
-                st.error(f"Erro ao processar arquivo: {e}")
+            # Envia em lotes para o Supabase
+            if batch:
+                conn.table("financas").insert(batch).execute()
+                st.success(f"{count} registros importados com as datas CORRETAS!")
+                time.sleep(2)
+                st.rerun()
+                
+        except Exception as e:
+            st.error(f"Erro ao ler arquivo: {e}")
